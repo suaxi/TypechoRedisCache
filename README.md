@@ -2,7 +2,7 @@
 
 #### 使用说明：
 
-1. 安装 `redis-php`
+1. 安装 `php-redis`
 2. `php.ini ` 开启 `redis` 扩展
 3. 将插件上传至 `typecho/plugins` 插件目录，并在后台 - 插件管理 - 启用
 
