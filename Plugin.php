@@ -16,6 +16,8 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 {
     private static $redis;
 
+    private static $cache_key_prefix = 'ARTICLE:';
+
     public static function activate()
     {
         Typecho_Plugin::factory('Widget_Archive')->beforeRender = array('TypechoRedisCache_Plugin', 'cache');
@@ -26,6 +28,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function deactivate()
     {
+        self::cleanCache();
         return _t('RedisCache 插件已禁用');
     }
 
@@ -47,15 +50,15 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     {
         if ($archive->is('post')) {
             self::connectRedisServer();
-            
-            $key = 'ARTICLE:' . md5($_SERVER['REQUEST_URI']);
+
+            $key = self::$cache_key_prefix . md5($_SERVER['REQUEST_URI']);
 
             $articleCache = self::$redis->get($key);
 
             if ($articleCache) {
-                $archive = $articleCache;
+                $archive = unserialize($articleCache);
             } else {
-                self::$redis->set($key, $archive, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
+                self::$redis->set($key, serialize($archive), Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
             }
         }
     }
@@ -63,8 +66,23 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     public static function clearCache($contents, $class)
     {
         self::connectRedisServer();
-        $key = 'ARTICLE:' . md5($contents['permalink']);
+        $key = self::$cache_key_prefix . md5($contents['permalink']);
         self::$redis->del($key);
+    }
+
+    public static function cleanCache()
+    {
+        self::connectRedisServer();
+
+        $script = <<<LUA
+        local keys = redis.call('KEYS', ARGV[1])
+        for i=1,#keys,5000 do
+            redis.call('DEL', unpack(keys, i, math.min(i+4999, #keys)))
+        end
+        return #keys
+        LUA;
+
+        self::$redis->eval($script, [self::$cache_key_prefix . '*'], 0);
     }
 
     private static function connectRedisServer()
