@@ -52,13 +52,27 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
             self::connectRedisServer();
 
             $key = self::$cache_key_prefix . md5($_SERVER['REQUEST_URI']);
-
-            $articleCache = self::$redis->get($key);
-
-            if ($articleCache) {
-                $archive = unserialize($articleCache);
+            if (self::$redis->exists($key)) {
+                $cache_data = self::$redis->get($key);
+                foreach ($cache_data as $key => $value) {
+                    $archive->$key = $value;
+                }
             } else {
-                self::$redis->set($key, serialize($archive), Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
+                ob_start();
+
+                $cache_data['cid'] = $archive->cid;
+                $cache_data['title'] = $archive->title;
+                $cache_data['slug'] = $archive->slug;
+                $cache_data['created'] = $archive->created;
+                $cache_data['modified'] = $archive->modified;
+                $cache_data['authorId'] = $archive->authorId;
+                $cache_data['author'] = $archive->author;
+                $cache_data['content'] = $archive->content;
+
+                self::$redis->hMSet($key, $cache_data);
+                self::$redis->expire($key, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
+
+                ob_end_flush();
             }
         }
     }
@@ -88,16 +102,13 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     private static function connectRedisServer()
     {
         if (!self::$redis) {
-            try
-            {
+            try {
                 $options = Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache');
                 self::$redis = new Redis();
                 self::$redis->connect($options->host, $options->port);
                 self::$redis->select($options->dbNum);
                 return true;
-            }
-            catch(Exception $e)
-            {
+            } catch (Exception $e) {
                 throw new Exception("Redis服务端连接异常,请检查!");
             }
         }
