@@ -20,7 +20,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function activate()
     {
-        Typecho_Plugin::factory('Widget_Archive')->beforeRender = array('TypechoRedisCache_Plugin', 'cache');
+        Typecho_Plugin::factory('Widget_Archive')->singleHandle = array('TypechoRedisCache_Plugin', 'cache');
         Typecho_Plugin::factory('Widget_Contents_Post_Edit')->finishPublish = array('TypechoRedisCache_Plugin', 'clearCache');
         Typecho_Plugin::factory('Widget_Contents_Post_Edit')->finishDelete = array('TypechoRedisCache_Plugin', 'clearCache');
         return _t('RedisCache 插件已激活');
@@ -48,32 +48,27 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function cache($archive)
     {
-        if ($archive->is('post')) {
-            self::connectRedisServer();
+        self::connectRedisServer();
 
-            $key = self::$cache_key_prefix . md5($_SERVER['REQUEST_URI']);
-            if (self::$redis->exists($key)) {
-                $cache_data = self::$redis->get($key);
-                foreach ($cache_data as $key => $value) {
-                    $archive->$key = $value;
-                }
-            } else {
-                ob_start();
+        $key = self::$cache_key_prefix . md5($_SERVER['REQUEST_URI']);
 
-                $cache_data['cid'] = $archive->cid;
-                $cache_data['title'] = $archive->title;
-                $cache_data['slug'] = $archive->slug;
-                $cache_data['created'] = $archive->created;
-                $cache_data['modified'] = $archive->modified;
-                $cache_data['authorId'] = $archive->authorId;
-                $cache_data['author'] = $archive->author;
-                $cache_data['content'] = $archive->content;
+        $cache_data = self::$redis->hGetAll($key);
 
-                self::$redis->hMSet($key, $cache_data);
-                self::$redis->expire($key, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
-
-                ob_end_flush();
+        if (!empty($cache_data)) {
+            foreach ($cache_data as $key => $value) {
+                $archive->$key = $value;
             }
+        } else {
+            $cache_data['cid'] = $archive->cid;
+            $cache_data['title'] = $archive->title;
+            $cache_data['slug'] = $archive->slug;
+            $cache_data['created'] = $archive->created;
+            $cache_data['modified'] = $archive->modified;
+            $cache_data['authorId'] = $archive->authorId;
+            $cache_data['content'] = $archive->content;
+
+            self::$redis->hMSet($key, $cache_data);
+            self::$redis->expire($key, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
         }
     }
 
@@ -109,7 +104,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 self::$redis->select($options->dbNum);
                 return true;
             } catch (Exception $e) {
-                throw new Exception("Redis服务端连接异常,请检查!");
+                throw new Exception("Redis服务端连接异常: " . $e->getMessage());
             }
         }
     }
