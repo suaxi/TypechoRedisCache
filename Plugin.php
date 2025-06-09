@@ -23,6 +23,8 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
         Typecho_Plugin::factory('Widget_Archive')->singleHandle = array('TypechoRedisCache_Plugin', 'cache');
         Typecho_Plugin::factory('Widget_Contents_Post_Edit')->finishPublish = array('TypechoRedisCache_Plugin', 'clearCache');
         Typecho_Plugin::factory('Widget_Contents_Post_Edit')->finishDelete = array('TypechoRedisCache_Plugin', 'clearCache');
+        Typecho_Plugin::factory('Widget_Contents_Page_Edit')->finishPublish = array('TypechoRedisCache_Plugin', 'clearCache');
+        Typecho_Plugin::factory('Widget_Contents_Page_Edit')->finishDelete = array('TypechoRedisCache_Plugin', 'clearCache');
         return _t('RedisCache 插件已激活');
     }
 
