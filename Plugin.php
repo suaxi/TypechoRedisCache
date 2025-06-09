@@ -49,8 +49,8 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     public static function cache($archive)
     {
         self::connectRedisServer();
-
-        $key = self::$cache_key_prefix . md5($_SERVER['REQUEST_URI']);
+        $article_id = $archive->cid;
+        $key = self::$cache_key_prefix . $article_id;
 
         $cache_data = self::$redis->hGetAll($key);
 
@@ -59,7 +59,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 $archive->$key = $value;
             }
         } else {
-            $cache_data['cid'] = $archive->cid;
+            $cache_data['cid'] = $article_id;
             $cache_data['title'] = $archive->title;
             $cache_data['slug'] = $archive->slug;
             $cache_data['created'] = $archive->created;
@@ -75,7 +75,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     public static function clearCache($contents, $class)
     {
         self::connectRedisServer();
-        $key = self::$cache_key_prefix . md5($contents['permalink']);
+        $key = self::$cache_key_prefix . $class->cid;
         self::$redis->del($key);
     }
 
