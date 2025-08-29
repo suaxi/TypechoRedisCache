@@ -9,7 +9,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package TypechoRedisCache
  * @author suaxi
- * @version 0.0.1 beta
+ * @version 0.0.2
  * @link http://www.wangchouchou.com
  */
 class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
@@ -36,6 +36,53 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function config(Typecho_Widget_Helper_Form $form)
     {
+        $cacheKeyPrefix = self::$cache_key_prefix;
+        
+        // 已缓存文章数
+        $cacheCount = 0;
+        try {
+            self::connectRedisServer(true);
+            if (self::$redis) {
+                $cacheCount = count(self::$redis->keys($cacheKeyPrefix . '*'));
+            }
+        } catch (Exception $e) {}
+
+        echo '<div style="padding-top:8px;">';
+        echo _t('当前已缓存文章数：<strong>%d</strong>', $cacheCount);
+        echo '<button type="button" id="clear_all_btn" style="margin-left:8px;">清除所有缓存</button>';
+        echo '</div>';
+
+        // 清除所有缓存
+        echo <<<HTML
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    var btn = document.getElementById('clear_all_btn');
+                    if(btn) {
+                        btn.onclick = function() {
+                            btn.disabled = true;
+                            btn.innerText = '清除中...';
+                            var cacheKey = 'cacheKeyPrefix';
+                            fetch(window.location.href, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                body: 'clear_all_cache=1&cacheKey=' + encodeURIComponent(cacheKey)
+                            }).then(r => location.reload());
+                        }
+                    }
+                });
+            </script>
+        HTML;
+
+        if (isset($_POST['clear_all_cache'])) {
+            try {
+                self::connectRedisServer(true);
+                self::cleanCache();
+                exit('清除全部缓存成功');
+            } catch (Exception $e) {
+                exit('清除失败: ' . $e->getMessage());
+            }
+        }
+
         $host = new Typecho_Widget_Helper_Form_Element_Text('host', NULL, '127.0.0.1', _t('Redis 服务器地址'));
         $port = new Typecho_Widget_Helper_Form_Element_Text('port', NULL, '6379', _t('Redis 服务器端口'));
         $dbNum = new Typecho_Widget_Helper_Form_Element_Text('dbNum', NULL, '0', _t('Redis 数据库(0-15)'));
@@ -96,7 +143,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
         self::$redis->eval($script, [self::$cache_key_prefix . '*'], 0);
     }
 
-    private static function connectRedisServer()
+    private static function connectRedisServer($slient = false)
     {
         if (!self::$redis) {
             try {
@@ -106,7 +153,9 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 self::$redis->select($options->dbNum);
                 return true;
             } catch (Exception $e) {
-                throw new Exception("Redis服务端连接异常: " . $e->getMessage());
+                if (!$slient) {
+                    throw new Exception("Redis服务端连接异常: " . $e->getMessage());
+                }
             }
         }
     }
