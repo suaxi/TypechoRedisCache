@@ -37,6 +37,19 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     public static function config(Typecho_Widget_Helper_Form $form)
     {
         $cacheKeyPrefix = self::$cache_key_prefix;
+
+        if (isset($_POST['clear_article_cache']) && isset($_POST['cid'])) {
+            $cid = $_POST['cid'];
+            try {
+                self::connectRedisServer(true);
+                if (self::$redis && self::$redis->del($cacheKeyPrefix . $cid)) {
+                    exit('clearCacheSuccess');
+                }
+                exit('clearCacheFail');
+            } catch (Exception $e) {
+                exit('clearCacheException: ' . $e->getMessage());
+            }
+        }
         
         // 已缓存文章数
         $cacheCount = 0;
@@ -47,17 +60,20 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
             }
         } catch (Exception $e) {}
 
-        echo '<div style="padding-top:8px;">';
-        echo _t('当前已缓存文章数：<strong>%d</strong>', $cacheCount);
-        echo '<button type="button" id="clear_all_btn" style="margin-left:8px;">清除所有缓存</button>';
-        echo '</div>';
-
         // 清除所有缓存
         echo <<<HTML
+            <div style="padding-top:8px;">
+                <strong>当前已缓存文章数：$cacheCount</strong>
+                <button type="button" id="clear_all_cache_btn" style="margin-left:8px;">清除所有缓存</button>
+            </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    var btn = document.getElementById('clear_all_btn');
+                    var btn = document.getElementById('clear_all_cache_btn');
                     if(btn) {
+                        if ($cacheCount === 0) {
+                            btn.disabled = true;
+                        }
+
                         btn.onclick = function() {
                             btn.disabled = true;
                             btn.innerText = '清除中...';
@@ -66,7 +82,10 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                                 body: 'clear_all_cache=1&cacheKey=' + encodeURIComponent(cacheKey)
-                            }).then(r => location.reload());
+                            }).then(r => {
+                                alert('清除所有缓存成功');
+                                location.reload();
+                            });
                         }
                     }
                 });
@@ -82,6 +101,54 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 exit('清除失败: ' . $e->getMessage());
             }
         }
+
+        // 清除指定文章缓存
+        echo <<<HTML
+            <div style="padding-top:8px;">
+                <strong>清除指定文章缓存：</strong>
+                <input type="text" id="article_cid" placeholder="请输入文章cid" style="width:120px;" />
+                <button type="button" id="clear_article_cache_btn" style="margin-left:5px;">清除</button>
+            </div>
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    var btn = document.getElementById('clear_article_cache_btn');
+                    if(btn) {
+                        if ($cacheCount === 0) {
+                            document.getElementById('article_cid').disabled = true;
+                            btn.disabled = true;
+                        }
+
+                        btn.onclick = function() {
+                            var cid = document.getElementById('article_cid').value;
+                            var cacheKey = '$cacheKeyPrefix';
+                            if (!cid) { alert('请输入文章cid'); return; }
+                            btn.disabled = true;
+                            btn.innerText = '清除中...';
+                            fetch(window.location.href, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                body: 'clear_article_cache=1&cid=' + encodeURIComponent(cid) + '&cacheKey=' + encodeURIComponent(cacheKey)
+                            }).then(r => {
+                                btn.disabled = false;
+                                btn.innerText = '清除';
+                                return r.text();
+                            }).then(data => {
+                                if (data.indexOf('clearCacheSuccess') !== -1) {
+                                    alert('清除成功');
+                                    location.reload();
+                                }
+                                if (data.indexOf('clearCacheFail') !== -1) {
+                                    alert('文章未缓存或已清除');
+                                }
+                                if (data.indexOf('clearCacheException') !== -1) {
+                                    alert(data.substr('clearCacheException:'));
+                                }
+                            });
+                        }
+                    }
+                });
+            </script>
+        HTML;
 
         $host = new Typecho_Widget_Helper_Form_Element_Text('host', NULL, '127.0.0.1', _t('Redis 服务器地址'));
         $port = new Typecho_Widget_Helper_Form_Element_Text('port', NULL, '6379', _t('Redis 服务器端口'));
