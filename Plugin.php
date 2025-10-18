@@ -9,7 +9,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package TypechoRedisCache
  * @author suaxi
- * @version 0.0.2
+ * @version 0.0.3
  * @link http://www.wangchouchou.com
  */
 class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
@@ -38,16 +38,73 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     {
         $cacheKeyPrefix = self::$cache_key_prefix;
 
+        // 测试连接
+        if (isset($_POST['test_redis_conn'])) {
+            if (ob_get_length()) {
+                ob_clean();
+            }
+            header('Content-Type: text/plain; charset=utf-8');
+
+            // 检查Redis扩展是否加载
+            if (!class_exists('Redis')) {
+                exit('PHP-REDIS_CHECK_FAIL');
+            }
+
+            $host = isset($_POST['host']) ? $_POST['host'] : '127.0.0.1';
+            $port = isset($_POST['port']) ? $_POST['port'] : '6379';
+            $dbNum = isset($_POST['dbNum']) ? $_POST['dbNum'] : '0';
+            
+            try {
+                $testRedis = new Redis();
+                $connected = @$testRedis->connect($host, $port, 2);
+                
+                if ($connected) {
+                    try {
+                        $testRedis->select((int)$dbNum);
+                        $pong = $testRedis->ping();
+                        $testRedis->close();
+                        if ($pong === true || (is_string($pong) && stripos($pong, 'PONG') !== false)) {
+                            exit('SUCCESS');
+                        } else {
+                            exit('FAIL');
+                        }
+                    } catch (Exception $e) {
+                        exit('FAIL');
+                    }
+                } else {
+                    exit('FAIL');
+                }
+            } catch (Exception $e) {
+                exit('FAIL');
+            }
+        }
+
+        // 清除所有缓存
+        if (isset($_POST['clear_all_cache'])) {
+            try {
+                self::cleanCache();
+                exit('SUCCESS');
+            } catch (Exception $e) {
+                exit('FAIL');
+            }
+        }
+
+        // 清除指定文章缓存
         if (isset($_POST['clear_article_cache']) && isset($_POST['cid'])) {
             $cid = $_POST['cid'];
             try {
-                self::connectRedisServer(true);
-                if (self::$redis && self::$redis->del($cacheKeyPrefix . $cid)) {
-                    exit('clearCacheSuccess');
+                if (self::$redis) {
+                    $res = self::$redis->del($cacheKeyPrefix . $cid);
+                    if ($res > 0) {
+                        exit('SUCCESS');
+                    } else {
+                        exit('FAIL');
+                    }
+                } else {
+                    exit('FAIL');
                 }
-                exit('clearCacheFail');
             } catch (Exception $e) {
-                exit('clearCacheException: ' . $e->getMessage());
+                exit('CLEAR_EXCEPTION');
             }
         }
         
@@ -60,50 +117,17 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
             }
         } catch (Exception $e) {}
 
-        // 清除所有缓存
         echo <<<HTML
+            <div style="padding-top:8px; padding-bottom:12px; border-bottom:1px solid #e9e9e9; margin-bottom:12px;">
+                <strong>测试 Redis 连接：</strong>
+                <button type="button" id="test_redis_conn_btn" style="margin-left:8px;">测试连接</button>
+            </div>
+
             <div style="padding-top:8px;">
-                <strong>当前已缓存文章数：$cacheCount</strong>
+                <strong>当前已缓存文章数：{$cacheCount}</strong>
                 <button type="button" id="clear_all_cache_btn" style="margin-left:8px;">清除所有缓存</button>
             </div>
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    var btn = document.getElementById('clear_all_cache_btn');
-                    if(btn) {
-                        if ($cacheCount === 0) {
-                            btn.disabled = true;
-                        }
 
-                        btn.onclick = function() {
-                            btn.disabled = true;
-                            btn.innerText = '清除中...';
-                            var cacheKey = 'cacheKeyPrefix';
-                            fetch(window.location.href, {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                                body: 'clear_all_cache=1&cacheKey=' + encodeURIComponent(cacheKey)
-                            }).then(r => {
-                                alert('清除所有缓存成功');
-                                location.reload();
-                            });
-                        }
-                    }
-                });
-            </script>
-        HTML;
-
-        if (isset($_POST['clear_all_cache'])) {
-            try {
-                self::connectRedisServer(true);
-                self::cleanCache();
-                exit('清除全部缓存成功');
-            } catch (Exception $e) {
-                exit('清除失败: ' . $e->getMessage());
-            }
-        }
-
-        // 清除指定文章缓存
-        echo <<<HTML
             <div style="padding-top:8px;">
                 <strong>清除指定文章缓存：</strong>
                 <input type="text" id="article_cid" placeholder="请输入文章cid" style="width:120px;" />
@@ -111,40 +135,146 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    var btn = document.getElementById('clear_article_cache_btn');
-                    if(btn) {
-                        if ($cacheCount === 0) {
-                            document.getElementById('article_cid').disabled = true;
-                            btn.disabled = true;
+                    // 测试连接按钮
+                    var testBtn = document.getElementById('test_redis_conn_btn');
+                    if(testBtn) {
+                        testBtn.onclick = function() {
+                            testBtn.disabled = true;
+                            testBtn.innerText = '测试中...';
+                            
+                            var host = document.querySelector('input[name="host"]').value || '127.0.0.1';
+                            var port = document.querySelector('input[name="port"]').value || '6379';
+                            var dbNum = document.querySelector('input[name="dbNum"]').value || '0';
+                            
+                            fetch(window.location.href, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                body: 'test_redis_conn=1&host=' + encodeURIComponent(host) + 
+                                      '&port=' + encodeURIComponent(port) + 
+                                      '&dbNum=' + encodeURIComponent(dbNum)
+                            }).then(r => r.text())
+                            .then(text => {
+                                testBtn.disabled = false;
+                                testBtn.innerText = '测试连接';
+                                
+                                if (text === 'SUCCESS') {
+                                    alert('连接成功！');
+                                } else if (text === 'PHP-REDIS_CHECK_FAIL') {
+                                    alert('php-redis 扩展未安装！');
+                                } else {
+                                    alert('Redis 连接失败，请检查配置！');
+                                }
+                            }).catch(err => {
+                                testBtn.disabled = false;
+                                testBtn.innerText = '测试连接';
+                                alert('请求失败，请检查配置！');
+                            });
+                        }
+                    }
+
+                    // 清除所有缓存
+                    var clearBtn = document.getElementById('clear_all_cache_btn');
+                    if(clearBtn) {
+                        if ({$cacheCount} === 0) {
+                            clearBtn.disabled = true;
                         }
 
-                        btn.onclick = function() {
-                            var cid = document.getElementById('article_cid').value;
+                        clearBtn.onclick = function() {
+                            if (!confirm('确定要清除所有缓存吗？')) {
+                                return;
+                            }
+
+                            clearBtn.disabled = true;
+                            clearBtn.innerText = '清除中...';
+                            fetch(window.location.href, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                body: 'clear_all_cache=1'
+                            }).then(r => {
+                                alert('清除所有缓存成功');
+                                location.reload();
+                            }).catch(e => {
+                                clearBtn.disabled = false;
+                                clearBtn.innerText = '清除所有缓存';
+                                alert('清除失败');
+                            });
+                        }
+                    }
+
+                    // 清除指定文章缓存
+                    var clearArticleBtn = document.getElementById('clear_article_cache_btn');
+                    var input = document.getElementById('article_cid');
+                    if(clearArticleBtn) {
+                        if ({$cacheCount} === 0) {
+                            input.disabled = true;
+                            clearArticleBtn.disabled = true;
+                        }
+
+                        clearArticleBtn.onclick = function() {
+                            var cid = input.value.trim();
                             var cacheKey = '$cacheKeyPrefix';
                             if (!cid) { alert('请输入文章cid'); return; }
-                            btn.disabled = true;
-                            btn.innerText = '清除中...';
+                            clearArticleBtn.disabled = true;
+                            clearArticleBtn.innerText = '清除中...';
                             fetch(window.location.href, {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                                 body: 'clear_article_cache=1&cid=' + encodeURIComponent(cid) + '&cacheKey=' + encodeURIComponent(cacheKey)
-                            }).then(r => {
-                                btn.disabled = false;
-                                btn.innerText = '清除';
-                                return r.text();
-                            }).then(data => {
-                                if (data.indexOf('clearCacheSuccess') !== -1) {
+                            }).then(r => r.text())
+                            .then(data => {
+                                clearArticleBtn.disabled = false;
+                                clearArticleBtn.innerText = '清除';
+                                if (data.indexOf('SUCCESS') !== -1) {
                                     alert('清除成功');
                                     location.reload();
-                                }
-                                if (data.indexOf('clearCacheFail') !== -1) {
+                                } else if (data.indexOf('FAIL') !== -1) {
                                     alert('文章未缓存或已清除');
+                                } else {
+                                    alert('清除失败');
                                 }
-                                if (data.indexOf('clearCacheException') !== -1) {
-                                    alert(data.substr('clearCacheException:'));
-                                }
+                            }).catch(e => {
+                                clearArticleBtn.disabled = false;
+                                clearArticleBtn.innerText = '清除';
+                                alert('请求失败');
                             });
                         }
+                    }
+
+                    // 保存设置校验
+                    var submitForm = document.querySelector('form');
+                    var saveBtn = document.querySelector('button[type="submit"], input[type="submit"]');
+                    if (submitForm) {
+                        submitForm.addEventListener('submit', function(e) {
+                            e.preventDefault();
+                            
+                            var host = document.querySelector('input[name="host"]').value || '127.0.0.1';
+                            var port = document.querySelector('input[name="port"]').value || '6379';
+                            var dbNum = document.querySelector('input[name="dbNum"]').value || '0';
+                            
+                            if (saveBtn) saveBtn.disabled = true;
+
+                            fetch(window.location.href, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                body: 'test_redis_conn=1&host=' + encodeURIComponent(host) + 
+                                      '&port=' + encodeURIComponent(port) + 
+                                      '&dbNum=' + encodeURIComponent(dbNum)
+                            }).then(r => r.text())
+                            .then(text => {
+                                if (text === 'SUCCESS') {
+                                    submitForm.submit();
+                                } else if (text === 'PHP-REDIS_CHECK_FAIL') {
+                                    alert('php-redis 扩展未安装！');
+                                    if (saveBtn) saveBtn.disabled = false;
+                                } else {
+                                    alert('Redis 连接失败，请检查配置！');
+                                    if (saveBtn) saveBtn.disabled = false;
+                                }
+                            }).catch(err => {
+                                alert('Redis 连接失败，请检查配置！');
+                                if (saveBtn) saveBtn.disabled = false;
+                            });
+                        })
                     }
                 });
             </script>
@@ -175,13 +305,15 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 $archive->$key = $value;
             }
         } else {
-            $cache_data['cid'] = $article_id;
-            $cache_data['title'] = $archive->title;
-            $cache_data['slug'] = $archive->slug;
-            $cache_data['created'] = $archive->created;
-            $cache_data['modified'] = $archive->modified;
-            $cache_data['authorId'] = $archive->authorId;
-            $cache_data['content'] = $archive->content;
+            $cache_data = array(
+                'cid' => $article_id,
+                'title' => $archive->title,
+                'slug' => $archive->slug,
+                'created' => $archive->created,
+                'modified' => $archive->modified,
+                'authorId' => $archive->authorId,
+                'content' => $archive->content
+            );
 
             self::$redis->hMSet($key, $cache_data);
             self::$redis->expire($key, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
@@ -190,7 +322,6 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function clearCache($contents, $class)
     {
-        self::connectRedisServer();
         $key = self::$cache_key_prefix . $class->cid;
         self::$redis->del($key);
     }
@@ -198,7 +329,6 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
     public static function cleanCache()
     {
         self::connectRedisServer();
-
         $script = <<<LUA
         local keys = redis.call('KEYS', ARGV[1])
         for i=1,#keys,5000 do
@@ -210,17 +340,22 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
         self::$redis->eval($script, [self::$cache_key_prefix . '*'], 0);
     }
 
-    private static function connectRedisServer($slient = false)
+    private static function connectRedisServer($silent = false)
     {
         if (!self::$redis) {
             try {
+                // 检查Redis扩展是否已加载
+                if (!class_exists('Redis')) {
+                    throw new Exception("php-redis 扩展未安装");
+                }
+
                 $options = Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache');
                 self::$redis = new Redis();
                 self::$redis->connect($options->host, $options->port);
                 self::$redis->select($options->dbNum);
                 return true;
             } catch (Exception $e) {
-                if (!$slient) {
+                if (!$silent) {
                     throw new Exception("Redis服务端连接异常: " . $e->getMessage());
                 }
             }

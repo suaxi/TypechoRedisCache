@@ -14,6 +14,12 @@
 
 
 
+#### 预览：
+
+![TypechoRedisCache](TypechoRedisCache.png)
+
+
+
 #### 开发计划：
 
 - [x] ~~缓存可视化界面~~，请使用 RDM、RedisInsight 等工具类
@@ -21,4 +27,4 @@
 - [x] 已缓存文章数量统计
 - [x] 清除所有缓存
 - [x] 清除指定文章缓存
-- [ ] Redis 服务端连接配置优化
+- [x] Redis 服务端连接配置优化
