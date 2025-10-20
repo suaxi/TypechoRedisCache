@@ -9,7 +9,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package TypechoRedisCache
  * @author suaxi
- * @version 0.0.3
+ * @version 1.0.0
  * @link http://www.wangchouchou.com
  */
 class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
@@ -50,9 +50,10 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 exit('PHP-REDIS_CHECK_FAIL');
             }
 
-            $host = isset($_POST['host']) ? $_POST['host'] : '127.0.0.1';
-            $port = isset($_POST['port']) ? $_POST['port'] : '6379';
-            $dbNum = isset($_POST['dbNum']) ? $_POST['dbNum'] : '0';
+            $host = isset($_POST['host']) ? base64_decode($_POST['host']) : '127.0.0.1';
+            $pwd = isset($_POST['pwd']) ? base64_decode($_POST['pwd']) : '';
+            $port = isset($_POST['port']) ? base64_decode($_POST['port']) : '6379';
+            $dbNum = isset($_POST['dbNum']) ? base64_decode($_POST['dbNum']) : '0';
             
             try {
                 $testRedis = new Redis();
@@ -60,6 +61,9 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 
                 if ($connected) {
                     try {
+                        if(!empty($pwd)) {
+                            $testRedis->auth($pwd);
+                        }
                         $testRedis->select((int)$dbNum);
                         $pong = $testRedis->ping();
                         $testRedis->close();
@@ -93,6 +97,8 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
         if (isset($_POST['clear_article_cache']) && isset($_POST['cid'])) {
             $cid = $_POST['cid'];
             try {
+                self::connectRedisServer(true);
+                
                 if (self::$redis) {
                     $res = self::$redis->del($cacheKeyPrefix . $cid);
                     if ($res > 0) {
@@ -135,6 +141,11 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
+                    function encodeStr(name) {
+                        var val = document.querySelector('input[name="' + name + '"]').value || '';
+                        return btoa(val);
+                    }
+
                     // 测试连接按钮
                     var testBtn = document.getElementById('test_redis_conn_btn');
                     if(testBtn) {
@@ -143,15 +154,22 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                             testBtn.innerText = '测试中...';
                             
                             var host = document.querySelector('input[name="host"]').value || '127.0.0.1';
+                            var pwd = document.querySelector('input[name="pwd"]').value || '';
                             var port = document.querySelector('input[name="port"]').value || '6379';
                             var dbNum = document.querySelector('input[name="dbNum"]').value || '0';
                             
+
+                            var body = 
+                                'test_redis_conn=1' +
+                                '&host=' + encodeURIComponent(encodeStr('host')) +
+                                '&pwd=' + encodeURIComponent(encodeStr('pwd')) +
+                                '&port=' + encodeURIComponent(encodeStr('port')) +
+                                '&dbNum=' + encodeURIComponent(encodeStr('dbNum'));
+
                             fetch(window.location.href, {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                                body: 'test_redis_conn=1&host=' + encodeURIComponent(host) + 
-                                      '&port=' + encodeURIComponent(port) + 
-                                      '&dbNum=' + encodeURIComponent(dbNum)
+                                body
                             }).then(r => r.text())
                             .then(text => {
                                 testBtn.disabled = false;
@@ -162,7 +180,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                                 } else if (text === 'PHP-REDIS_CHECK_FAIL') {
                                     alert('php-redis 扩展未安装！');
                                 } else {
-                                    alert('Redis 连接失败，请检查配置！');
+                                    alert('Redis 测试连接失败，请检查配置！');
                                 }
                             }).catch(err => {
                                 testBtn.disabled = false;
@@ -248,17 +266,23 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                             e.preventDefault();
                             
                             var host = document.querySelector('input[name="host"]').value || '127.0.0.1';
+                            var pwd = document.querySelector('input[name="pwd"]').value || '';
                             var port = document.querySelector('input[name="port"]').value || '6379';
                             var dbNum = document.querySelector('input[name="dbNum"]').value || '0';
                             
                             if (saveBtn) saveBtn.disabled = true;
 
+                            var body = 
+                                'test_redis_conn=1' +
+                                '&host=' + encodeURIComponent(encodeStr('host')) +
+                                '&pwd=' + encodeURIComponent(encodeStr('pwd')) +
+                                '&port=' + encodeURIComponent(encodeStr('port')) +
+                                '&dbNum=' + encodeURIComponent(encodeStr('dbNum'));
+
                             fetch(window.location.href, {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                                body: 'test_redis_conn=1&host=' + encodeURIComponent(host) + 
-                                      '&port=' + encodeURIComponent(port) + 
-                                      '&dbNum=' + encodeURIComponent(dbNum)
+                                body
                             }).then(r => r.text())
                             .then(text => {
                                 if (text === 'SUCCESS') {
@@ -281,10 +305,12 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
         HTML;
 
         $host = new Typecho_Widget_Helper_Form_Element_Text('host', NULL, '127.0.0.1', _t('Redis 服务器地址'));
+        $pwd = new Typecho_Widget_Helper_Form_Element_Password('pwd', NULL, NULL, _t('Redis 服务器密码（可选）'));
         $port = new Typecho_Widget_Helper_Form_Element_Text('port', NULL, '6379', _t('Redis 服务器端口'));
         $dbNum = new Typecho_Widget_Helper_Form_Element_Text('dbNum', NULL, '0', _t('Redis 数据库(0-15)'));
         $expire = new Typecho_Widget_Helper_Form_Element_Text('expire', NULL, '86400', _t('缓存过期时间（秒）'));
         $form->addInput($host);
+        $form->addInput($pwd);
         $form->addInput($port);
         $form->addInput($dbNum);
         $form->addInput($expire);
@@ -314,7 +340,6 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 'authorId' => $archive->authorId,
                 'content' => $archive->content
             );
-
             self::$redis->hMSet($key, $cache_data);
             self::$redis->expire($key, Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache')->expire);
         }
@@ -322,6 +347,7 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
 
     public static function clearCache($contents, $class)
     {
+        self::connectRedisServer();
         $key = self::$cache_key_prefix . $class->cid;
         self::$redis->del($key);
     }
@@ -352,6 +378,9 @@ class TypechoRedisCache_Plugin implements Typecho_Plugin_Interface
                 $options = Typecho_Widget::widget('Widget_Options')->plugin('TypechoRedisCache');
                 self::$redis = new Redis();
                 self::$redis->connect($options->host, $options->port);
+                if (!empty($options->pwd)) {
+                    self::$redis->auth($options->pwd);
+                }
                 self::$redis->select($options->dbNum);
                 return true;
             } catch (Exception $e) {
